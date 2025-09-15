@@ -42,7 +42,7 @@ pipeline {
                     npm ci --verbose
                     
                     echo "Installing Playwright browsers..."
-                    npx playwright install chromium firefox webkit
+                    npx playwright install chromium firefox webkit chrome
                     
                     echo "System dependencies already installed manually"
                     echo "Verifying browser installation..."
