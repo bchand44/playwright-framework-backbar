@@ -1,0 +1,241 @@
+#!/usr/bin/env groovy
+
+/**
+ * Playwright Framework Pipeline - Docker Optimized
+ * Runs Playwright tests within Docker environment
+ */
+
+pipeline {
+    agent {
+        docker {
+            image 'mcr.microsoft.com/playwright:v1.40.0-focal'
+            args '-v /var/run/docker.sock:/var/run/docker.sock -v $PWD:/workspace -w /workspace'
+        }
+    }
+    
+    parameters {
+        choice(
+            name: 'BROWSER',
+            choices: ['chromium', 'firefox', 'webkit', 'all'],
+            description: 'Browser to run tests on'
+        )
+        choice(
+            name: 'ENVIRONMENT',
+            choices: ['local', 'staging', 'production'],
+            description: 'Environment to test against'
+        )
+        booleanParameter(
+            name: 'RUN_SAMPLE_APP',
+            defaultValue: true,
+            description: 'Start sample app for testing'
+        )
+        string(
+            name: 'TEST_PATTERN',
+            defaultValue: 'tests/**/*.spec.ts',
+            description: 'Test pattern to run'
+        )
+    }
+    
+    environment {
+        NODE_VERSION = '18'
+        CI = 'true'
+        PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = '1'
+    }
+    
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        timeout(time: 1, unit: 'HOURS')
+        timestamps()
+        ansiColor('xterm')
+    }
+    
+    stages {
+        stage('🔧 Setup') {
+            steps {
+                script {
+                    echo "🎭 Setting up Playwright test environment..."
+                    
+                    // Install dependencies
+                    sh 'npm ci'
+                    
+                    // Verify Playwright installation
+                    sh 'npx playwright --version'
+                    
+                    // List available browsers
+                    sh 'npx playwright install --dry-run'
+                }
+            }
+        }
+        
+        stage('🚀 Start Sample App') {
+            when {
+                expression { params.RUN_SAMPLE_APP }
+            }
+            steps {
+                script {
+                    echo "🌐 Starting sample applications..."
+                    
+                    // Start sample web app in background
+                    sh 'npm run sample:web > logs/sample-web.log 2>&1 &'
+                    
+                    // Start sample API in background  
+                    sh 'npm run sample:api > logs/sample-api.log 2>&1 &'
+                    
+                    // Wait for apps to be ready
+                    sh '''
+                        echo "Waiting for sample apps to start..."
+                        for i in {1..30}; do
+                            if curl -s http://localhost:3000 > /dev/null && curl -s http://localhost:3001/health > /dev/null; then
+                                echo "✅ Sample apps are ready"
+                                break
+                            fi
+                            echo "Waiting... ($i/30)"
+                            sleep 2
+                        done
+                    '''
+                }
+            }
+        }
+        
+        stage('🧪 Run Tests') {
+            parallel {
+                stage('Chromium Tests') {
+                    when {
+                        anyOf {
+                            expression { params.BROWSER == 'chromium' }
+                            expression { params.BROWSER == 'all' }
+                        }
+                    }
+                    steps {
+                        script {
+                            sh """
+                                npx playwright test ${params.TEST_PATTERN} \
+                                    --project=chromium \
+                                    --reporter=html,json,junit \
+                                    --output-dir=test-results/chromium
+                            """
+                        }
+                    }
+                    post {
+                        always {
+                            publishTestResults testResultsPattern: 'test-results/chromium/junit.xml'
+                            archiveArtifacts artifacts: 'test-results/chromium/**/*', fingerprint: true
+                        }
+                    }
+                }
+                
+                stage('Firefox Tests') {
+                    when {
+                        anyOf {
+                            expression { params.BROWSER == 'firefox' }
+                            expression { params.BROWSER == 'all' }
+                        }
+                    }
+                    steps {
+                        script {
+                            sh """
+                                npx playwright test ${params.TEST_PATTERN} \
+                                    --project=firefox \
+                                    --reporter=html,json,junit \
+                                    --output-dir=test-results/firefox
+                            """
+                        }
+                    }
+                    post {
+                        always {
+                            publishTestResults testResultsPattern: 'test-results/firefox/junit.xml'
+                            archiveArtifacts artifacts: 'test-results/firefox/**/*', fingerprint: true
+                        }
+                    }
+                }
+                
+                stage('WebKit Tests') {
+                    when {
+                        anyOf {
+                            expression { params.BROWSER == 'webkit' }
+                            expression { params.BROWSER == 'all' }
+                        }
+                    }
+                    steps {
+                        script {
+                            sh """
+                                npx playwright test ${params.TEST_PATTERN} \
+                                    --project=webkit \
+                                    --reporter=html,json,junit \
+                                    --output-dir=test-results/webkit
+                            """
+                        }
+                    }
+                    post {
+                        always {
+                            publishTestResults testResultsPattern: 'test-results/webkit/junit.xml'
+                            archiveArtifacts artifacts: 'test-results/webkit/**/*', fingerprint: true
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('📊 Generate Reports') {
+            steps {
+                script {
+                    echo "📋 Generating test reports..."
+                    
+                    // Generate consolidated HTML report
+                    sh '''
+                        mkdir -p playwright-report
+                        npx playwright show-report --reporter=html playwright-report
+                    '''
+                    
+                    // Generate Allure report if available
+                    script {
+                        if (fileExists('allure-results')) {
+                            sh 'npx allure generate allure-results --output allure-report --clean'
+                        }
+                    }
+                }
+            }
+            post {
+                always {
+                    // Publish HTML report
+                    publishHTML([
+                        allowMissing: false,
+                        alwaysLinkToLastBuild: true,
+                        keepAll: true,
+                        reportDir: 'playwright-report',
+                        reportFiles: 'index.html',
+                        reportName: 'Playwright Test Report'
+                    ])
+                    
+                    // Archive all reports
+                    archiveArtifacts artifacts: 'playwright-report/**/*', fingerprint: true
+                    archiveArtifacts artifacts: 'logs/**/*', fingerprint: true, allowEmptyArchive: true
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            script {
+                // Stop sample apps
+                sh 'pkill -f "npm run sample" || true'
+                
+                // Clean up
+                cleanWs()
+            }
+        }
+        
+        success {
+            echo "✅ Playwright tests completed successfully!"
+        }
+        
+        failure {
+            echo "❌ Playwright tests failed!"
+        }
+        
+        unstable {
+            echo "⚠️ Playwright tests completed with issues!"
+        }
+    }
+}

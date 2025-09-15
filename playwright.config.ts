@@ -34,7 +34,14 @@ export default defineConfig({
   
   // Reporter configuration
   reporter: [
-    ['html', { outputFolder: 'playwright-report', open: 'never' }],
+    ['html', { 
+      outputFolder: 'playwright-report', 
+      open: 'never',
+      attachments: {
+        mode: 'always',
+        includeTraces: true
+      }
+    }],
     ['json', { outputFile: 'test-results/results.json' }],
     ['junit', { outputFile: 'test-results/junit.xml' }],
     ['allure-playwright', { 
@@ -61,7 +68,7 @@ export default defineConfig({
     viewport: { width: 1920, height: 1080 },
     
     // Collect trace when retrying the failed test
-    trace: 'on-first-retry',
+    trace: 'retain-on-failure', // Options: 'off' | 'on' | 'retain-on-failure' | 'on-first-retry'
     
     // Record video for failed tests
     video: 'retain-on-failure',

@@ -17,6 +17,8 @@
     "test:smoke": "npx playwright test --grep @smoke",
     "test:regression": "npx playwright test --grep @regression",
     "test:parallel": "npx playwright test --workers=4",
+    "test:trace": "npx playwright test --trace=on",
+    "test:trace-show": "npx playwright show-trace",
     "report": "npx playwright show-report",
     "report:allure": "allure serve allure-results",
     "install:browsers": "npx playwright install",
