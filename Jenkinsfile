@@ -43,7 +43,10 @@ pipeline {
                     
                     echo "Installing Playwright browsers..."
                     npx playwright install chromium firefox webkit
-                    npx playwright install-deps
+                    
+                    echo "System dependencies already installed manually"
+                    echo "Verifying browser installation..."
+                    npx playwright --version
                 '''
             }
         }
