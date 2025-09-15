@@ -62,7 +62,13 @@ pipeline {
                     
                     sh """
                         echo "Running tests with browser: ${params.BROWSER}"
-                        npx playwright test ${browserFlag} --reporter=html,junit
+                        if [ "${params.BROWSER}" = "all" ]; then
+                            echo "Running tests on all browsers..."
+                            npx playwright test --grep-invert "@api" --reporter=html,junit
+                        else
+                            echo "Running tests on ${params.BROWSER} browser..."
+                            npx playwright test --project=${params.BROWSER} --grep-invert "@api" --reporter=html,junit
+                        fi
                     """
                 }
             }
