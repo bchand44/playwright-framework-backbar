@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test App - Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f8f9fa;
+        }
+        .header {
+            background-color: #007bff;
+            color: white;
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .welcome-message {
+            font-size: 18px;
+        }
+        .logout-btn {
+            background-color: #dc3545;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .logout-btn:hover {
+            background-color: #c82333;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 30px auto;
+            padding: 0 20px;
+        }
+        .dashboard-content {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .stat-card {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 4px solid #007bff;
+        }
+        .stat-number {
+            font-size: 2em;
+            font-weight: bold;
+            color: #007bff;
+        }
+        .stat-label {
+            color: #6c757d;
+            margin-top: 5px;
+        }
+        .navigation {
+            background: white;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .nav-links {
+            display: flex;
+            gap: 20px;
+        }
+        .nav-link {
+            color: #007bff;
+            text-decoration: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            transition: background-color 0.3s;
+        }
+        .nav-link:hover {
+            background-color: #e9ecef;
+        }
+        .content-section {
+            margin-top: 30px;
+            padding: 20px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #6c757d;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="welcome-message" data-testid="welcome-message">
+            Welcome to the Test Dashboard!
+        </div>
+        <button class="logout-btn" id="logoutBtn" data-testid="logout-button">Logout</button>
+    </div>
+
+    <div class="navigation">
+        <div class="nav-links">
+            <a href="#users" class="nav-link" data-testid="users-link">Users</a>
+            <a href="#products" class="nav-link" data-testid="products-link">Products</a>
+            <a href="#reports" class="nav-link" data-testid="reports-link">Reports</a>
+            <a href="#settings" class="nav-link" data-testid="settings-link">Settings</a>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="dashboard-content" data-testid="dashboard-content">
+            <h1>Dashboard Overview</h1>
+            
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-number" data-testid="users-count">1,234</div>
+                    <div class="stat-label">Total Users</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" data-testid="products-count">567</div>
+                    <div class="stat-label">Products</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" data-testid="orders-count">89</div>
+                    <div class="stat-label">Orders Today</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" data-testid="revenue-amount">$12,345</div>
+                    <div class="stat-label">Revenue</div>
+                </div>
+            </div>
+
+            <div class="content-section">
+                <h2>Recent Activity</h2>
+                <div class="loading" data-testid="activity-loading">
+                    Loading recent activity...
+                </div>
+            </div>
+
+            <div class="content-section">
+                <h2>Quick Actions</h2>
+                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                    <button class="nav-link" style="border: 1px solid #007bff;" data-testid="add-user-btn">Add User</button>
+                    <button class="nav-link" style="border: 1px solid #007bff;" data-testid="add-product-btn">Add Product</button>
+                    <button class="nav-link" style="border: 1px solid #007bff;" data-testid="generate-report-btn">Generate Report</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Check if user is logged in
+        const sessionId = localStorage.getItem('sessionId') || sessionStorage.getItem('sessionId');
+        if (!sessionId) {
+            window.location.href = '/login';
+        }
+
+        // Logout functionality
+        document.getElementById('logoutBtn').addEventListener('click', async () => {
+            try {
+                await fetch('/api/logout', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ sessionId })
+                });
+            } catch (error) {
+                console.error('Logout error:', error);
+            } finally {
+                // Clear session storage
+                localStorage.removeItem('sessionId');
+                sessionStorage.removeItem('sessionId');
+                
+                // Redirect to login
+                window.location.href = '/login';
+            }
+        });
+
+        // Navigation functionality
+        document.querySelectorAll('.nav-link').forEach(link => {
+            link.addEventListener('click', (e) => {
+                if (link.getAttribute('href').startsWith('#')) {
+                    e.preventDefault();
+                    const section = link.getAttribute('href').substring(1);
+                    console.log(`Navigating to ${section} section`);
+                    
+                    // Update welcome message based on section
+                    const welcomeMsg = document.querySelector('[data-testid="welcome-message"]');
+                    welcomeMsg.textContent = `Welcome to ${section.charAt(0).toUpperCase() + section.slice(1)}!`;
+                }
+            });
+        });
+
+        // Simulate loading activity
+        setTimeout(() => {
+            const loadingElement = document.querySelector('[data-testid="activity-loading"]');
+            loadingElement.innerHTML = `
+                <div>✓ User john.doe@example.com logged in</div>
+                <div>✓ New product "Test Product" created</div>
+                <div>✓ Order #12345 completed</div>
+            `;
+        }, 2000);
+
+        // Quick action buttons
+        document.querySelector('[data-testid="add-user-btn"]').addEventListener('click', () => {
+            alert('Add User functionality would be implemented here');
+        });
+        
+        document.querySelector('[data-testid="add-product-btn"]').addEventListener('click', () => {
+            alert('Add Product functionality would be implemented here');
+        });
+        
+        document.querySelector('[data-testid="generate-report-btn"]').addEventListener('click', () => {
+            alert('Generate Report functionality would be implemented here');
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  playwright-tests:
+    build: .
+    volumes:
+      - ./test-results:/app/test-results
+      - ./logs:/app/logs
+      - ./data:/app/data
+    environment:
+      - NODE_ENV=test
+      - BASE_URL=${BASE_URL:-https://example.com}
+      - API_BASE_URL=${API_BASE_URL:-https://api.example.com}
+      - HEADLESS=true
+      - WORKERS=2
+    command: npm test
+
+  playwright-dev:
+    build: .
+    volumes:
+      - .:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - BASE_URL=http://host.docker.internal:3000
+      - HEADLESS=false
+    command: npm run test:headed
+    
+  allure-report:
+    image: frankescobar/allure-docker-service
+    ports:
+      - "5050:5050"
+    volumes:
+      - ./allure-results:/app/allure-results
+    environment:
+      - CHECK_RESULTS_EVERY_SECONDS=3
+      - KEEP_HISTORY=TRUE
+
+  nginx-reports:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./playwright-report:/usr/share/nginx/html
+    depends_on:
+      - playwright-tests

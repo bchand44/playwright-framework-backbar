@@ -1,0 +1,16 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Install Dependencies and Setup",
+			"type": "shell",
+			"command": "npm install && npm run install:browsers",
+			"group": "build",
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			],
+			"args": []
+		}
+	]
+}

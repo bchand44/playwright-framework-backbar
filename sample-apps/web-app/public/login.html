@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test App - Login</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 400px;
+            margin: 100px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .login-container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #555;
+        }
+        input[type="text"], input[type="email"], input[type="password"] {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+            font-size: 16px;
+        }
+        input[type="checkbox"] {
+            margin-right: 8px;
+        }
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            margin: 15px 0;
+        }
+        .btn {
+            width: 100%;
+            padding: 12px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-bottom: 10px;
+        }
+        .btn:hover {
+            background-color: #0056b3;
+        }
+        .btn-secondary {
+            background-color: #6c757d;
+        }
+        .btn-secondary:hover {
+            background-color: #545b62;
+        }
+        .error-message {
+            color: #dc3545;
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            border-radius: 4px;
+            display: none;
+        }
+        .links {
+            text-align: center;
+            margin-top: 20px;
+        }
+        .links a {
+            color: #007bff;
+            text-decoration: none;
+        }
+        .links a:hover {
+            text-decoration: underline;
+        }
+        .success-message {
+            color: #155724;
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <h1>Test App Login</h1>
+        
+        <div id="successMessage" class="success-message"></div>
+        <div id="errorMessage" class="error-message"></div>
+        
+        <form id="loginForm">
+            <div class="form-group">
+                <label for="username">Username/Email:</label>
+                <input type="email" id="username" name="username" data-testid="username" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="password">Password:</label>
+                <input type="password" id="password" name="password" data-testid="password" required>
+            </div>
+            
+            <div class="checkbox-group">
+                <input type="checkbox" id="rememberMe" name="rememberMe" data-testid="remember-me">
+                <label for="rememberMe">Remember me</label>
+            </div>
+            
+            <button type="submit" class="btn" data-testid="login-button">Login</button>
+            <button type="button" class="btn btn-secondary" id="clearBtn" data-testid="clear-button">Clear Form</button>
+        </form>
+        
+        <div class="links">
+            <a href="/forgot-password" data-testid="forgot-password-link">Forgot Password?</a>
+        </div>
+        
+        <!-- Test credentials helper -->
+        <div style="margin-top: 30px; padding: 15px; background-color: #e9ecef; border-radius: 4px; font-size: 14px;">
+            <strong>Test Credentials:</strong><br>
+            Email: testuser@example.com<br>
+            Password: TestPassword123!<br><br>
+            <strong>Admin:</strong><br>
+            Email: admin@example.com<br>
+            Password: AdminPassword123!
+        </div>
+    </div>
+
+    <script>
+        const loginForm = document.getElementById('loginForm');
+        const errorMessage = document.getElementById('errorMessage');
+        const successMessage = document.getElementById('successMessage');
+        const clearBtn = document.getElementById('clearBtn');
+
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const formData = new FormData(loginForm);
+            const data = {
+                username: formData.get('username'),
+                password: formData.get('password'),
+                rememberMe: formData.get('rememberMe') === 'on'
+            };
+
+            try {
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data)
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    successMessage.textContent = 'Login successful! Redirecting...';
+                    successMessage.style.display = 'block';
+                    errorMessage.style.display = 'none';
+                    
+                    // Store session info
+                    if (data.rememberMe) {
+                        localStorage.setItem('sessionId', result.sessionId);
+                    } else {
+                        sessionStorage.setItem('sessionId', result.sessionId);
+                    }
+                    
+                    // Redirect after short delay
+                    setTimeout(() => {
+                        window.location.href = '/dashboard';
+                    }, 1000);
+                } else {
+                    errorMessage.textContent = result.message || 'Login failed';
+                    errorMessage.style.display = 'block';
+                    successMessage.style.display = 'none';
+                }
+            } catch (error) {
+                errorMessage.textContent = 'Network error. Please try again.';
+                errorMessage.style.display = 'block';
+                successMessage.style.display = 'none';
+            }
+        });
+
+        clearBtn.addEventListener('click', () => {
+            loginForm.reset();
+            errorMessage.style.display = 'none';
+            successMessage.style.display = 'none';
+        });
+
+        // Check for validation errors when submitting empty form
+        loginForm.addEventListener('submit', (e) => {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            
+            if (!username || !password) {
+                e.preventDefault();
+                errorMessage.textContent = 'Please fill in all required fields';
+                errorMessage.style.display = 'block';
+                return false;
+            }
+        });
+    </script>
+</body>
+</html>

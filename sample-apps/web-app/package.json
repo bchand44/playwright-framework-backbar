@@ -1,0 +1,17 @@
+{
+  "name": "sample-web-app",
+  "version": "1.0.0",
+  "description": "Sample web application for testing with Playwright framework",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5"
+  },
+  "keywords": ["testing", "playwright", "sample"],
+  "author": "Test Framework",
+  "license": "MIT"
+}

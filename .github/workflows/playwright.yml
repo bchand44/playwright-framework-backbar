@@ -1,0 +1,144 @@
+name: Playwright Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Run tests daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+jobs:
+  test:
+    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x]
+        browser: [chromium, firefox, webkit]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Install Playwright Browsers
+      run: npx playwright install --with-deps ${{ matrix.browser }}
+
+    - name: Set up environment
+      run: |
+        cp .env.example .env
+        echo "BASE_URL=${{ secrets.BASE_URL || 'https://example.com' }}" >> .env
+        echo "API_BASE_URL=${{ secrets.API_BASE_URL || 'https://api.example.com' }}" >> .env
+
+    - name: Run Playwright tests
+      run: npx playwright test --project=${{ matrix.browser }}
+      env:
+        CI: true
+        PLAYWRIGHT_WORKERS: 2
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: playwright-report-${{ matrix.browser }}-${{ matrix.node-version }}
+        path: |
+          playwright-report/
+          test-results/
+        retention-days: 30
+
+    - name: Upload Allure results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: allure-results-${{ matrix.browser }}-${{ matrix.node-version }}
+        path: allure-results/
+        retention-days: 30
+
+  smoke-tests:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+    - run: npm ci
+    - run: npx playwright install --with-deps chromium
+    - name: Run smoke tests
+      run: npx playwright test --grep @smoke
+      env:
+        CI: true
+
+  api-tests:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+    - run: npm ci
+    - name: Run API tests
+      run: npx playwright test tests/api/
+      env:
+        CI: true
+
+  publish-report:
+    needs: test
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      
+    - name: Publish HTML Report
+      uses: peaceiris/actions-gh-pages@v3
+      if: github.ref == 'refs/heads/main'
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: playwright-report-chromium-18.x
+        destination_dir: reports/${{ github.run_number }}
+
+  notify:
+    needs: [test, smoke-tests, api-tests]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+    - name: Notify Slack
+      if: ${{ secrets.SLACK_WEBHOOK_URL }}
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        text: |
+          Playwright Test Results:
+          - Main Tests: ${{ needs.test.result }}
+          - Smoke Tests: ${{ needs.smoke-tests.result }}
+          - API Tests: ${{ needs.api-tests.result }}
+          
+          Commit: ${{ github.sha }}
+          Author: ${{ github.actor }}
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Run security audit
+      run: npm audit --audit-level=high
+      continue-on-error: true
+
+    - name: Run license check
+      run: npx license-checker --summary
+      continue-on-error: true
