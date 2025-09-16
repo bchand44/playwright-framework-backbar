@@ -1,0 +1,513 @@
+pipeline {
+    agent any
+    
+    parameters {
+        choice(
+            name: 'BROWSER',
+            choices: ['chromium', 'firefox', 'webkit'],
+            description: 'Browser to run tests on'
+        )
+        booleanParam(
+            name: 'HEADLESS',
+            defaultValue: true,
+            description: 'Run tests in headless mode'
+        )
+    }
+    
+    environment {
+        NODE_VERSION = '18'
+        HEADLESS = "${params.HEADLESS}"
+        CI = 'true'
+        BROWSER = "${params.BROWSER}"
+        TEST_SUITE = "${params.TEST_SUITE}"
+        ENVIRONMENT = "${params.ENVIRONMENT}"
+        WORKERS = "${params.PARALLEL_EXECUTION ? '4' : '1'}"
+        
+        // Dynamic environment URLs
+        BASE_URL = "${params.ENVIRONMENT == 'production' ? 'https://prod.yourapp.com' : params.ENVIRONMENT == 'staging' ? 'https://staging.yourapp.com' : 'http://localhost:3000'}"
+        API_BASE_URL = "${params.ENVIRONMENT == 'production' ? 'https://api.prod.yourapp.com' : params.ENVIRONMENT == 'staging' ? 'https://api.staging.yourapp.com' : 'http://localhost:3001'}"
+    }
+    
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '30'))
+        timeout(time: 1, unit: 'HOURS')
+        retry(1)
+        parallelsAlwaysFailFast()
+    }
+    
+    stages {
+        stage('🏗️ Checkout & Setup') {
+            parallel {
+                stage('Checkout Code') {
+                    steps {
+                        checkout scm
+                        echo "📁 Code checked out from branch: ${env.BRANCH_NAME}"
+                        echo "🔗 Commit: ${env.GIT_COMMIT}"
+                    }
+                }
+                stage('Environment Info') {
+                    steps {
+                        script {
+                            echo """
+                            🎯 Build Configuration:
+                            ├── Browser: ${params.BROWSER}
+                            ├── Test Suite: ${params.TEST_SUITE}
+                            ├── Environment: ${params.ENVIRONMENT}
+                            ├── Headless: ${params.HEADLESS}
+                            ├── Parallel: ${params.PARALLEL_EXECUTION}
+                            ├── Base URL: ${env.BASE_URL}
+                            └── API URL: ${env.API_BASE_URL}
+                            """
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('🔧 Dependencies & Setup') {
+            steps {
+                script {
+                    echo '📦 Installing dependencies and browsers'
+                    sh '''
+                        node --version
+                        npm --version
+                        npm ci --prefer-offline --no-audit
+                        npm run install:browsers
+                        npx playwright --version
+                    '''
+                }
+            }
+        }
+        
+        stage('🔍 Code Quality') {
+            parallel {
+                stage('Lint Check') {
+                    steps {
+                        echo '🧹 Running ESLint'
+                        sh 'npm run lint'
+                    }
+                    post {
+                        always {
+                            publishLint pattern: 'eslint-results.xml'
+                        }
+                    }
+                }
+                stage('Type Check') {
+                    steps {
+                        echo '🔤 Running TypeScript type check'
+                        sh 'npm run type-check'
+                    }
+                }
+                stage('Security Scan') {
+                    steps {
+                        echo '🛡️ Running security audit'
+                        sh 'npm audit --audit-level=high || true'
+                    }
+                }
+            }
+        }
+        
+        stage('🎮 Test Environment Setup') {
+            when {
+                expression { params.ENVIRONMENT == 'development' }
+            }
+            steps {
+                script {
+                    echo '🚀 Starting local test applications'
+                    sh '''
+                        # Start sample applications in background
+                        npm run start:apps > /dev/null 2>&1 &
+                        APP_PID=$!
+                        echo $APP_PID > app.pid
+                        
+                        # Wait for applications to be ready
+                        echo "⏳ Waiting for applications to start..."
+                        sleep 15
+                        
+                        # Health check
+                        curl -f http://localhost:3000 || exit 1
+                        curl -f http://localhost:3001/health || exit 1
+                        echo "✅ Applications are ready"
+                    '''
+                }
+            }
+        }
+        
+        stage('🧪 Test Execution') {
+            parallel {
+                stage('🚨 Smoke Tests') {
+                    when {
+                        anyOf {
+                            expression { params.TEST_SUITE == 'all' }
+                            expression { params.TEST_SUITE == 'smoke' }
+                        }
+                    }
+                    steps {
+                        script {
+                            echo '💨 Running smoke tests'
+                            def browserFlag = params.BROWSER != 'all' ? "--project=${params.BROWSER}" : ""
+                            sh """
+                                npm run test:smoke ${browserFlag} \
+                                --reporter=html,junit,json \
+                                --workers=${env.WORKERS}
+                            """
+                        }
+                    }
+                }
+                
+                stage('🌐 E2E Tests') {
+                    when {
+                        anyOf {
+                            expression { params.TEST_SUITE == 'all' }
+                            expression { params.TEST_SUITE == 'e2e' }
+                        }
+                    }
+                    steps {
+                        script {
+                            echo '🎭 Running end-to-end tests'
+                            def browserFlag = params.BROWSER != 'all' ? "--project=${params.BROWSER}" : ""
+                            sh """
+                                npm run test:e2e ${browserFlag} \
+                                --reporter=html,junit,json \
+                                --workers=${env.WORKERS}
+                            """
+                        }
+                    }
+                }
+                
+                stage('🔌 API Tests') {
+                    when {
+                        anyOf {
+                            expression { params.TEST_SUITE == 'all' }
+                            expression { params.TEST_SUITE == 'api' }
+                        }
+                    }
+                    steps {
+                        script {
+                            echo '🔗 Running API tests'
+                            sh """
+                                npm run test:api \
+                                --reporter=html,junit,json \
+                                --workers=${env.WORKERS}
+                            """
+                        }
+                    }
+                }
+                
+                stage('🔄 Regression Tests') {
+                    when {
+                        anyOf {
+                            expression { params.TEST_SUITE == 'all' }
+                            expression { params.TEST_SUITE == 'regression' }
+                            expression { env.BRANCH_NAME == 'main' }
+                        }
+                    }
+                    steps {
+                        script {
+                            echo '🔍 Running regression tests'
+                            def browserFlag = params.BROWSER != 'all' ? "--project=${params.BROWSER}" : ""
+                            sh """
+                                npm run test:regression ${browserFlag} \
+                                --reporter=html,junit,json \
+                                --workers=${env.WORKERS}
+                            """
+                        }
+                    }
+                }
+            }
+            post {
+                always {
+                    script {
+                        // Collect test results
+                        publishTestResults testResultsPattern: 'test-results/junit.xml'
+                        
+                        // Archive test artifacts
+                        archiveArtifacts artifacts: '''
+                            test-results/**/*,
+                            playwright-report/**/*,
+                            logs/**/*,
+                            allure-results/**/*
+                        ''', allowEmptyArchive: true
+                    }
+                }
+            }
+        }
+        
+        stage('📊 Report Generation') {
+            parallel {
+                stage('HTML Reports') {
+                    steps {
+                        echo '📄 Publishing HTML reports'
+                        publishHTML([
+                            allowMissing: false,
+                            alwaysLinkToLastBuild: true,
+                            keepAll: true,
+                            reportDir: 'playwright-report',
+                            reportFiles: 'index.html',
+                            reportName: 'Playwright Test Report',
+                            reportTitles: 'Test Execution Report'
+                        ])
+                    }
+                }
+                
+                stage('Allure Reports') {
+                    steps {
+                        script {
+                            echo '📈 Generating Allure reports'
+                            sh 'npm run report:allure || true'
+                            allure([
+                                includeProperties: false,
+                                jdk: '',
+                                properties: [],
+                                reportBuildPolicy: 'ALWAYS',
+                                results: [[path: 'allure-results']]
+                            ])
+                        }
+                    }
+                }
+                
+                stage('Performance Reports') {
+                    steps {
+                        script {
+                            echo '⚡ Analyzing performance metrics'
+                            sh '''
+                                # Extract performance data from test results
+                                node -e "
+                                const fs = require('fs');
+                                const results = JSON.parse(fs.readFileSync('test-results/results.json', 'utf8'));
+                                const performance = results.suites.map(suite => ({
+                                    name: suite.title,
+                                    duration: suite.tests.reduce((sum, test) => sum + test.results[0].duration, 0)
+                                }));
+                                fs.writeFileSync('performance-report.json', JSON.stringify(performance, null, 2));
+                                console.log('Performance report generated');
+                                "
+                            '''
+                            archiveArtifacts artifacts: 'performance-report.json', allowEmptyArchive: true
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('📊 Quality Gates') {
+            steps {
+                script {
+                    echo '🎯 Evaluating quality gates'
+                    
+                    // Parse test results
+                    def testResults = readJSON file: 'test-results/results.json'
+                    def totalTests = testResults.stats.total
+                    def passedTests = testResults.stats.passed
+                    def failedTests = testResults.stats.failed
+                    def passRate = (passedTests / totalTests) * 100
+                    
+                    echo """
+                    📈 Test Results Summary:
+                    ├── Total Tests: ${totalTests}
+                    ├── Passed: ${passedTests}
+                    ├── Failed: ${failedTests}
+                    └── Pass Rate: ${passRate.round(2)}%
+                    """
+                    
+                    // Quality gate checks
+                    if (passRate < 95 && env.BRANCH_NAME == 'main') {
+                        error("❌ Quality gate failed: Pass rate ${passRate.round(2)}% is below 95% threshold for main branch")
+                    }
+                    
+                    if (failedTests > 0 && params.TEST_SUITE == 'smoke') {
+                        error("❌ Quality gate failed: Smoke tests must have 100% pass rate")
+                    }
+                    
+                    echo "✅ All quality gates passed!"
+                }
+            }
+        }
+        
+        stage('🧹 Cleanup') {
+            steps {
+                script {
+                    echo '🧹 Cleaning up test environment'
+                    sh '''
+                        # Stop sample applications if running locally
+                        if [ -f app.pid ]; then
+                            kill $(cat app.pid) 2>/dev/null || true
+                            rm app.pid
+                        fi
+                        
+                        # Clean temporary files
+                        npm run clean || true
+                        
+                        # Keep only essential artifacts
+                        find test-results -name "*.webm" -size +10M -delete || true
+                    '''
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            script {
+                // Calculate build metrics
+                def buildDuration = currentBuild.duration
+                def testResults = readJSON file: 'test-results/results.json'
+                def passRate = (testResults.stats.passed / testResults.stats.total) * 100
+                
+                echo """
+                🏁 Build Complete:
+                ├── Duration: ${buildDuration}ms
+                ├── Pass Rate: ${passRate.round(2)}%
+                ├── Browser: ${params.BROWSER}
+                └── Environment: ${params.ENVIRONMENT}
+                """
+            }
+        }
+        
+        success {
+            script {
+                echo '🎉 Build successful - sending notifications'
+                
+                // Slack notification for success
+                slackSend(
+                    channel: '#qa-automation',
+                    color: 'good',
+                    message: """
+                    ✅ *Playwright Tests PASSED!* 🎉
+                    
+                    📊 *Build Details:*
+                    • Branch: `${env.BRANCH_NAME}`
+                    • Build: `#${env.BUILD_NUMBER}`
+                    • Browser: `${params.BROWSER}`
+                    • Test Suite: `${params.TEST_SUITE}`
+                    • Environment: `${params.ENVIRONMENT}`
+                    
+                    📈 *Reports:*
+                    • <${env.BUILD_URL}Playwright_20Test_20Report|Test Report>
+                    • <${env.BUILD_URL}allure|Allure Report>
+                    
+                    🚀 Ready for deployment!
+                    """,
+                    teamDomain: 'your-workspace',
+                    token: 'your-slack-token'
+                )
+                
+                // Trigger deployment pipeline for main branch
+                if (env.BRANCH_NAME == 'main') {
+                    build job: 'deployment-pipeline', 
+                          parameters: [string(name: 'VERSION', value: env.BUILD_NUMBER)]
+                }
+            }
+        }
+        
+        failure {
+            script {
+                echo '💥 Build failed - sending alerts'
+                
+                // Slack notification for failure
+                slackSend(
+                    channel: '#qa-automation',
+                    color: 'danger',
+                    message: """
+                    ❌ *Playwright Tests FAILED!* 🚨
+                    
+                    📊 *Build Details:*
+                    • Branch: `${env.BRANCH_NAME}`
+                    • Build: `#${env.BUILD_NUMBER}`
+                    • Browser: `${params.BROWSER}`
+                    • Test Suite: `${params.TEST_SUITE}`
+                    • Environment: `${params.ENVIRONMENT}`
+                    
+                    🔍 *Investigation:*
+                    • <${env.BUILD_URL}console|Console Logs>
+                    • <${env.BUILD_URL}Playwright_20Test_20Report|Test Report>
+                    • <${env.BUILD_URL}artifact|Test Artifacts>
+                    
+                    👥 <@channel> Please investigate!
+                    """,
+                    teamDomain: 'your-workspace',
+                    token: 'your-slack-token'
+                )
+                
+                // Email notification for critical failures
+                emailext(
+                    subject: "❌ Playwright Tests Failed - Build #${env.BUILD_NUMBER}",
+                    body: """
+                    <h2>🚨 Test Execution Failed</h2>
+                    
+                    <h3>Build Information:</h3>
+                    <ul>
+                        <li><strong>Branch:</strong> ${env.BRANCH_NAME}</li>
+                        <li><strong>Build Number:</strong> ${env.BUILD_NUMBER}</li>
+                        <li><strong>Browser:</strong> ${params.BROWSER}</li>
+                        <li><strong>Test Suite:</strong> ${params.TEST_SUITE}</li>
+                        <li><strong>Environment:</strong> ${params.ENVIRONMENT}</li>
+                        <li><strong>Commit:</strong> ${env.GIT_COMMIT}</li>
+                    </ul>
+                    
+                    <h3>Quick Links:</h3>
+                    <ul>
+                        <li><a href="${env.BUILD_URL}console">Console Logs</a></li>
+                        <li><a href="${env.BUILD_URL}Playwright_20Test_20Report">Test Report</a></li>
+                        <li><a href="${env.BUILD_URL}artifact">Test Artifacts</a></li>
+                    </ul>
+                    
+                    <p>Please investigate and fix the failing tests.</p>
+                    """,
+                    mimeType: 'text/html',
+                    to: "${env.CHANGE_AUTHOR_EMAIL}, qa-team@company.com, ${env.BRANCH_NAME == 'main' ? 'release-team@company.com' : ''}"
+                )
+                
+                // Create JIRA ticket for critical failures on main branch
+                if (env.BRANCH_NAME == 'main') {
+                    jiraCreateIssue site: 'your-jira-site',
+                                   issue: [
+                                       fields: [
+                                           project: [key: 'QA'],
+                                           summary: "Critical: Playwright Tests Failed on Main Branch - Build #${env.BUILD_NUMBER}",
+                                           description: """
+                                           Automated test execution failed on main branch.
+                                           
+                                           Build: #${env.BUILD_NUMBER}
+                                           Commit: ${env.GIT_COMMIT}
+                                           
+                                           Investigation required immediately.
+                                           
+                                           Links:
+                                           - Console: ${env.BUILD_URL}console
+                                           - Report: ${env.BUILD_URL}Playwright_20Test_20Report
+                                           """,
+                                           issuetype: [name: 'Bug'],
+                                           priority: [name: 'Critical'],
+                                           assignee: [name: 'qa-lead']
+                                       ]
+                                   ]
+                }
+            }
+        }
+        
+        unstable {
+            echo '⚠️ Build unstable - some tests failed but build continued'
+            
+            slackSend(
+                channel: '#qa-automation',
+                color: 'warning',
+                message: """
+                ⚠️ *Playwright Tests UNSTABLE* 
+                
+                Some tests failed but build continued.
+                Build: `#${env.BUILD_NUMBER}` | Branch: `${env.BRANCH_NAME}`
+                
+                <${env.BUILD_URL}Playwright_20Test_20Report|View Report>
+                """,
+                teamDomain: 'your-workspace',
+                token: 'your-slack-token'
+            )
+        }
+        
+        cleanup {
+            echo '🧽 Final cleanup'
+            cleanWs()
+        }
+    }
+}
