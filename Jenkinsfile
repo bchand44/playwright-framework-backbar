@@ -41,12 +41,14 @@ pipeline {
                     echo "Installing dependencies..."
                     npm ci --verbose
                     
-                    echo "Installing Playwright browsers..."
-                    npx playwright install chromium firefox webkit chrome
+                    echo "Installing Playwright browsers (without Chrome)..."
+                    npx playwright install chromium firefox webkit
                     
                     echo "System dependencies already installed manually"
                     echo "Verifying browser installation..."
                     npx playwright --version
+                    echo "Available browsers:"
+                    ls -la ~/.cache/ms-playwright/ || echo "Cache directory not found"
                 '''
             }
         }
