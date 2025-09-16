@@ -103,7 +103,8 @@ export default defineConfig({
       name: 'chromium',
       use: { 
         ...devices['Desktop Chrome'],
-        channel: 'chrome',
+        // Use chromium instead of chrome channel for CI compatibility
+        // channel: 'chrome', // Commented out for Jenkins CI
         launchOptions: {
           slowMo: process.env.BROWSER_SLOW_MO ? parseInt(process.env.BROWSER_SLOW_MO) : 0,
         },
